@@ -7,6 +7,7 @@ import pickle
 import sys
 import numpy as np
 import pandas as pd
+import sys
 
 def get_games(filename, n_games=sys.maxsize):
     '''Считывает данные о партиях из файла "filename".
@@ -39,36 +40,41 @@ def extract_game_features(game):
 
     features = defaultdict(int)
     node = game
+    board = node.board()
     stockfish_scores = []
 
     while node.variations:  # and node.board().fullmove_number < cut_off:
         move = node.variation(0).move
-        score = game.variation(0).eval().white().score()
-        if score is None:
-            # score может быть None, если движок видит мат
-            if game.variation(0).eval().is_mate():
+        board = node.board()
+        score = node.variation(0).eval()
+        try:
+            if score is None:
+                # Если мата нет, то это пропущенное значение
+                if stockfish_scores == []:
+                    stockfish_scores.append(0)
+                else:
+                    stockfish_scores.append(stockfish_scores[-1])
+            elif score.is_mate():
                 # Проверяем какой стороне грозит мат
-                moves_to_checkmate = game.variation(0).eval().white().mate()
+                moves_to_checkmate = score.white().mate()
                 # В случае, когда движок видит мат - повышаю значимость позиции
                 # Использую значение 1300, чтобы иметь запас "поощерительных очков"
                 if moves_to_checkmate>0:
                     stockfish_scores.append(1300-moves_to_checkmate*10)
                 else:
                     stockfish_scores.append(-1300-moves_to_checkmate*10)
-            else:
-                # Если мата нет, то это пропущенное значение
-                if stockfish_scores == []:
-                    stockfish_scores.append(0)
-                else:
-                    stockfish_scores.append(stockfish_scores[-1])
-        elif abs(score)>1000:
-            if board.turn:
+            elif score.white().score()>1000:
                 stockfish_scores.append(1000)
-            else:
+            elif score.white().score()<-1000:
                 stockfish_scores.append(-1000)
-        else:
-            stockfish_scores.append(game.variation(0).eval().white().score())
-        board = node.board()
+            else:
+                stockfish_scores.append(score.white().score())
+        except:
+            print(score)
+            print(score.is_mate())
+            print(score.white())
+            print(score.white().score())
+            sys.exit(0)
 
         # Фигура с начальной позиции хода (откуда шагнула)
         moved_piece = board.piece_type_at(move.from_square)
@@ -136,8 +142,6 @@ def extract_game_features(game):
     # Общее количество шахов
     features['total_checks'] = features['total_white_checks'] + features['total_black_checks']
     features['promotion'] = features['white_promotion'] + features['black_promotion']
-    # Добавляем оценки стокфиша для партий
-    #features['stockfish_scores'] = stockfish_scores
     # Проверяем позицию на наличие мата
     if board.is_checkmate():
         features['is_checkmate'] += 1
